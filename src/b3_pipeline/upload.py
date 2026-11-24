@@ -3,11 +3,12 @@
 import argparse
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import boto3
 from boto3.exceptions import S3UploadFailedError
 from botocore.exceptions import BotoCoreError, ClientError
+from dotenv import dotenv_values
 
 from .environment import get_project_paths
 
@@ -25,13 +26,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    access_key = os.environ.get("aws_key")
-    secret_key = os.environ.get("aws_secret_key")
-    if not access_key or not secret_key:
-        print("Defina as variáveis de ambiente aws_key e aws_secret_key.", file=sys.stderr)
+    paths = get_project_paths()
+    env_file = paths.root / ".env"
+    try:
+        credentials: Mapping[str, str | None] = dotenv_values(env_file, interpolate=False)
+    except (OSError, UnicodeError):
+        print(f"Não foi possível ler o arquivo {env_file}.", file=sys.stderr)
         return 2
 
-    processed_dir = get_project_paths().processed
+    credential_source = "arquivo .env"
+    if "aws_key" not in credentials and "aws_secret_key" not in credentials:
+        credentials = os.environ
+        credential_source = "ambiente do terminal"
+    access_key = credentials.get("aws_key")
+    secret_key = credentials.get("aws_secret_key")
+    if not access_key or not secret_key:
+        print(f"Defina aws_key e aws_secret_key no arquivo {env_file}.", file=sys.stderr)
+        return 2
+
+    processed_dir = paths.processed
     files = sorted(path for path in processed_dir.glob("*.parquet") if path.is_file())
     if not files:
         print(f"Nenhum arquivo Parquet encontrado em {processed_dir}.", file=sys.stderr)
@@ -51,6 +64,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             s3.upload_file(str(path), args.bucket, key)
         except (S3UploadFailedError, BotoCoreError, ClientError, OSError) as exc:
+            error: BaseException | None = exc
+            if isinstance(exc, S3UploadFailedError):
+                error = exc.__cause__ or exc.__context__
+            if (
+                isinstance(error, ClientError)
+                and error.response.get("Error", {}).get("Code") == "InvalidAccessKeyId"
+            ):
+                print(
+                    f"A AWS rejeitou aws_key do {credential_source} (InvalidAccessKeyId). "
+                    "Confira o ID de uma chave de acesso ativa no IAM.",
+                    file=sys.stderr,
+                )
+                break
             print(f"Falha ao enviar para {destination}: {exc}", file=sys.stderr)
             continue
         uploaded += 1

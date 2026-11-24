@@ -2,13 +2,16 @@
 
 ## Enviar os Parquets ao Amazon S3
 
-Use um bucket existente e credenciais com permissão `s3:PutObject` no destino. No Bash, informe as credenciais quando o terminal pedir. Os valores digitados ficam ocultos.
+Use um bucket existente e credenciais com permissão `s3:PutObject` no destino. Crie um arquivo `.env` na raiz do projeto e substitua os valores de exemplo pelas suas credenciais.
+
+```dotenv
+aws_key=sua_chave_de_acesso
+aws_secret_key=sua_chave_secreta
+```
+
+O comando lê o par de credenciais do `.env` automaticamente. Se o arquivo estiver ausente ou não declarar nenhuma das duas chaves, o comando usa as variáveis de ambiente do terminal.
 
 ```bash
-read -rsp 'Chave de acesso AWS: ' aws_key; printf '\n'
-read -rsp 'Chave secreta AWS: ' aws_secret_key; printf '\n'
-export aws_key aws_secret_key
-
 uv run b3-upload --bucket meu-bucket --prefix b3/processados
 ```
 
